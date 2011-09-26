@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   title="Time Report Converter"
+					   enabled="{!working}">
+	<s:layout>
+		<s:VerticalLayout verticalAlign="middle" horizontalAlign="center"/>
+	</s:layout>
+	
+	<s:Form width="100%">
+		<s:FormItem label="Report(s)">
+			<s:HGroup width="100%">
+				<s:TextInput id="inName" width="100%" editable="false" text="{inPath}"/>
+				<s:Button label="..." width="35"
+						  click="input.browseForDirectory('Select report or directory with reports')"/>
+			</s:HGroup>
+			<s:CheckBox id="recursive" label="and subfolders"/>
+		</s:FormItem>
+		<s:FormItem label="Output file">
+			<s:layout>
+				<s:HorizontalLayout/>
+			</s:layout>
+			<s:TextInput id="outName" width="100%" editable="false" text="{outPath}"/>
+			<s:Button label="..." width="35"
+					  click="output.browseForSave('Save to')"/>
+		</s:FormItem>
+	</s:Form>
+	<s:Button label="GO"
+			  click="convert()"/>
+	
+	<s:Label text="Left to load: {col.toLoad}"
+			 visible="{!col.loaded}"/>
+
+	<fx:Declarations>
+		<s:DateTimeFormatter id="df"
+							 dateStyle="short"
+							 timeStyle="none"/>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import com.as3xls.xls.ExcelFile;
+			import com.as3xls.xls.Sheet;
+			
+			import flash.net.navigateToURL;
+			
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.events.CloseEvent;
+			
+			import reportconverter.Done;
+			import reportconverter.FileReadCollection;
+			import reportconverter.Report;
+			import reportconverter.ReportLine;
+			
+			import spark.collections.Sort;
+			import spark.collections.SortField;
+			import spark.formatters.DateTimeFormatter;
+			
+			[Bindable]
+			public var col:FileReadCollection = new FileReadCollection();
+			
+			[Bindable]
+			public var working:Boolean = false;
+			
+			[Bindable]
+			public var inPath:String = File.userDirectory.resolvePath("Dropbox/farata/reports").nativePath;
+			private var input:File = createFile(inPath, onInFileSelect);
+			[Bindable]
+			public var outPath:String = File.userDirectory.resolvePath("Downloads/timesheet " + currentDate + ".xls").nativePath;
+			private var output:File = createFile(outPath, onOutFileSelect);
+			
+			private function get currentDate():String {
+				var date:Date = new Date();
+				var m:Number = date.month + 1;
+				return "" + date.fullYear + "." + (m < 10 ? "0" : "") + m;
+			}
+			
+			private function createFile(path:String, handler:Function):File {
+				var file:File = new File(path);
+				file.addEventListener(Event.SELECT, handler);
+				return file;
+			}
+			
+			private function onInFileSelect(event:Event):void {
+				inPath = input.nativePath;
+			}
+			
+			private function onOutFileSelect(event:Event):void {
+				outPath = output.nativePath;
+			}
+			
+			private function read(file:File):FileReadCollection {
+				if (file.isDirectory)
+					return readDir(file);
+				else {
+					var reports:FileReadCollection = initCollection();
+					var report:Report = readFile(file);
+					if (report != null)
+						reports.addItem(report);
+					return reports;
+				}
+			}
+			
+			private function initCollection():FileReadCollection {
+				var reports:FileReadCollection = new FileReadCollection();
+				var sort:Sort = new Sort();
+				sort.fields = [new SortField("date")];
+				reports.sort = sort;
+				reports.refresh();
+				
+				reports.addEventListener(Event.COMPLETE, onCollectionLoadComplete);
+				
+				return reports;
+			}
+			
+			private function readDir(dir:File):FileReadCollection {
+				var reports:FileReadCollection = initCollection();
+				var files:Array = dir.getDirectoryListing();
+				for (var i:int = 0; i < files.length; i++) {
+					var file:File = files[i] as File;
+					if (!file.isDirectory) {
+						var report:Report = readFile(file);
+						if (report != null)
+							reports.addItem(report);
+					} else if (recursive.selected) {
+						reports.addAll(readDir(file));
+					}
+				}
+				return reports;
+			}
+			
+			private var re:RegExp = /^report (\d+)\D(\d+)\D(\d+)\.txt$/im;
+			private function readFile(file:File):Report {
+				var report:Report = null;
+				var res:* = re.exec(file.name);
+				if (res != null)
+					report = new Report(new Date(res[1], Number(res[2]) - 1, res[3]), file);
+				return report;
+			}
+			
+			private function writeFile(bytes:ByteArray, file:File):File {
+				var fileStream:FileStream = new FileStream();
+				try {
+					fileStream.open(file, FileMode.WRITE);
+					fileStream.writeBytes(bytes);
+					// TODO Writing to already open file crashes application
+				} catch (e:Error) {
+					Alert.show("Couldn't write to " + file.nativePath, "Error writing");
+				} finally {
+					fileStream.close();
+				}
+				return file;
+			}
+			
+			private function buildXLS(reports:ArrayCollection):ByteArray {
+				var rows:Number = 0;
+				for (var r:int = 0; r < reports.length; r++) {
+					var report:Report = reports.getItemAt(r) as Report;
+					report.filterDone();
+					rows += report.lines.length;
+				}
+				
+				var sheet:Sheet = new Sheet();
+				var columns:Array = ["Day", "Task", "Hours", "Notes"];
+				sheet.resize(rows + 1, columns.length);
+				
+				for (var colIndex:int = 0; colIndex < sheet.cols; colIndex++)
+					sheet.setCell(0, colIndex, columns[colIndex]); 
+				
+				var i:int = 1;
+				for (r = 0; r < reports.length; r++) {
+					report = reports.getItemAt(r) as Report;
+					sheet.setCell(i, 0, df.format(report.date));
+					for (var l:int = 0; l < report.lines.length; l++) {
+						var rl:Done = report.lines.getItemAt(l) as Done;
+						sheet.setCell(i, 1, rl.lineExt);
+						sheet.setCell(i, 2, rl.time);
+						i++;
+					}
+				}
+				
+				for (r = 0; r < reports.length; r++) {
+					report = reports.getItemAt(r) as Report;
+					report.removeFilter();
+				}
+				
+				var xls:ExcelFile = new ExcelFile();
+				xls.sheets.addItem(sheet);
+				return xls.saveToByteArray();
+			}
+			
+			private function prepareFileName(name:String):String {
+				var idx:Number = name.lastIndexOf(".");
+				var ext:String = "";
+				if (idx == -1 || name.substring(idx).toLowerCase().indexOf(".xls") == -1)
+					ext = ".xls";
+				return name + ext;
+			}
+			
+			private function onCollectionLoadComplete(event:Event):void {
+				writeFile(buildXLS(col), output);
+				Alert.show("Should we open generated report?\nYou can find it here, btw:\n" + outPath,
+					"Done!", Alert.YES | Alert.NO, null, doneHandler);
+			}
+			
+			private function doneHandler(event:CloseEvent):void {
+				if (event.detail == Alert.YES) {
+					try {
+						output.openWithDefaultApplication();
+					} catch (e:Error) {
+						trace(e.message);
+						navigateToURL(new URLRequest(output.url));
+					}
+				}
+			}
+			
+			private function convert():void {
+				col = read(input);
+				if (col.length == 0)
+					Alert.show("Seems there's nothing to convert");
+			}
+			
+		]]>
+	</fx:Script>
+</s:WindowedApplication>
