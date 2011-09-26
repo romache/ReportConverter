@@ -1,0 +1,25 @@
+Convert separete (daily) time reports into one Excel spreadsheet (e.g., for monthly reports)
+
+Usually I report on my daily activities to clients in a following form:
+
+Done today:
+1. Done this [2h]
+2. Doing that [IN PROGRESS] [3h]
+
+TODO next:
+1. Continue doing that
+2. Will do one more thing
+3. And this too
+
+Problems:
+none
+
+I store it for my own purposes in a separate files named something like "report 2011.09.25.txt" in a folders named after a specific client.
+
+* Since reports are sent mostly using email (Dropbox too) it's probably not a bad idea to retrieve those emails as another option apart from local files.
+
+At the end/beginning of the month I send monthly report adn invoice based on that report.
+Report is an Excel spreadsheet with four columns and summary at the end. Columns are: Day, Task, Time, Notes.
+
+So to keep everything DRY, considering monthly report is only a summary of daily reports - this project has been spawned.
+
