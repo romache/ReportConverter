@@ -2,8 +2,10 @@
 <s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
 					   xmlns:s="library://ns.adobe.com/flex/spark" 
 					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   xmlns:rc="reportconverter.*"
 					   title="Time Report Converter"
-					   enabled="{!working}">
+					   enabled="{col.loaded}"
+					   creationComplete="outPath = guessOutPath(inPath); output = createFile(outPath, onOutFileSelect);">
 	<s:layout>
 		<s:VerticalLayout verticalAlign="middle" horizontalAlign="center"/>
 	</s:layout>
@@ -33,57 +35,69 @@
 			 visible="{!col.loaded}"/>
 
 	<fx:Declarations>
-		<s:DateTimeFormatter id="df"
-							 dateStyle="short"
-							 timeStyle="none"/>
+		<rc:FileReadCollection id="col" complete="onCollectionLoadComplete(event)">
+			<rc:sort>
+				<s:Sort>
+					<s:fields>
+						<s:SortField name="date"/>
+					</s:fields>
+				</s:Sort>
+			</rc:sort>
+		</rc:FileReadCollection>
 	</fx:Declarations>
 	<fx:Script>
 		<![CDATA[
 			import com.as3xls.xls.ExcelFile;
 			import com.as3xls.xls.Sheet;
 			
-			import flash.net.navigateToURL;
-			
-			import mx.collections.ArrayCollection;
+			import mx.collections.IList;
 			import mx.controls.Alert;
+			import mx.core.EventPriority;
 			import mx.events.CloseEvent;
 			
 			import reportconverter.Done;
-			import reportconverter.FileReadCollection;
 			import reportconverter.Report;
-			import reportconverter.ReportLine;
 			
-			import spark.collections.Sort;
-			import spark.collections.SortField;
 			import spark.formatters.DateTimeFormatter;
-			
-			[Bindable]
-			public var col:FileReadCollection = new FileReadCollection();
-			
-			[Bindable]
-			public var working:Boolean = false;
 			
 			[Bindable]
 			public var inPath:String = File.userDirectory.resolvePath("Dropbox/farata/reports").nativePath;
 			private var input:File = createFile(inPath, onInFileSelect);
 			[Bindable]
-			public var outPath:String = File.userDirectory.resolvePath("Downloads/timesheet " + currentDate + ".xls").nativePath;
-			private var output:File = createFile(outPath, onOutFileSelect);
+			public var outPath:String;
+			private var output:File;
 			
-			private function get currentDate():String {
-				var date:Date = new Date();
-				var m:Number = date.month + 1;
-				return "" + date.fullYear + "." + (m < 10 ? "0" : "") + m;
+			private function buildOutPath(date:Date):String {
+				var f:DateTimeFormatter = new DateTimeFormatter();
+				f.dateTimePattern = "yyyy.MM";
+				return File.userDirectory.resolvePath("Downloads/timesheet " + f.format(date) + "g.xls").nativePath;
 			}
 			
 			private function createFile(path:String, handler:Function):File {
 				var file:File = new File(path);
-				file.addEventListener(Event.SELECT, handler);
+				file.addEventListener(Event.SELECT, handler, false, EventPriority.DEFAULT, true);
 				return file;
 			}
 			
 			private function onInFileSelect(event:Event):void {
 				inPath = input.nativePath;
+				if (outPath == buildOutPath(new Date())) {
+					outPath = guessOutPath(inPath);
+					output = createFile(outPath, onOutFileSelect);
+				}
+			}
+			
+			private function guessOutPath(inPath:String):String {
+				var folder:String = inPath.substring(inPath.lastIndexOf("/")+1);
+				var dateRe:RegExp = /(\b|\D)(\d{4})[-\._ ](\d{2})(\b|\D)/;
+				var result:Object = dateRe.exec(folder);
+				if (result) {
+					var date:Date = new Date();
+					date.fullYear = Number(result[2]);
+					date.month = Number(result[3])-1;
+					return buildOutPath(date);
+				} else
+					return buildOutPath(new Date());
 			}
 			
 			private function onOutFileSelect(event:Event):void {
@@ -91,43 +105,30 @@
 			}
 			
 			private function read(file:File):FileReadCollection {
+				col.removeAll();
 				if (file.isDirectory)
 					return readDir(file);
 				else {
-					var reports:FileReadCollection = initCollection();
 					var report:Report = readFile(file);
 					if (report != null)
-						reports.addItem(report);
-					return reports;
+						col.addItem(report);
+					return col;
 				}
 			}
 			
-			private function initCollection():FileReadCollection {
-				var reports:FileReadCollection = new FileReadCollection();
-				var sort:Sort = new Sort();
-				sort.fields = [new SortField("date")];
-				reports.sort = sort;
-				reports.refresh();
-				
-				reports.addEventListener(Event.COMPLETE, onCollectionLoadComplete);
-				
-				return reports;
-			}
-			
 			private function readDir(dir:File):FileReadCollection {
-				var reports:FileReadCollection = initCollection();
 				var files:Array = dir.getDirectoryListing();
 				for (var i:int = 0; i < files.length; i++) {
 					var file:File = files[i] as File;
 					if (!file.isDirectory) {
 						var report:Report = readFile(file);
 						if (report != null)
-							reports.addItem(report);
+							col.addItem(report);
 					} else if (recursive.selected) {
-						reports.addAll(readDir(file));
+						col.addAll(readDir(file));
 					}
 				}
-				return reports;
+				return col;
 			}
 			
 			private var re:RegExp = /^report (\d+)\D(\d+)\D(\d+)\.txt$/im;
@@ -144,7 +145,6 @@
 				try {
 					fileStream.open(file, FileMode.WRITE);
 					fileStream.writeBytes(bytes);
-					// TODO Writing to already open file crashes application
 				} catch (e:Error) {
 					Alert.show("Couldn't write to " + file.nativePath, "Error writing");
 				} finally {
@@ -153,7 +153,9 @@
 				return file;
 			}
 			
-			private function buildXLS(reports:ArrayCollection):ByteArray {
+			private function buildXLS(reports:IList):ByteArray {
+//				var df:DateTimeFormatter = new DateTimeFormatter();
+//				df.dateTimePattern="MM-dd-yyyy";
 				var rows:Number = 0;
 				for (var r:int = 0; r < reports.length; r++) {
 					var report:Report = reports.getItemAt(r) as Report;
@@ -171,7 +173,7 @@
 				var i:int = 1;
 				for (r = 0; r < reports.length; r++) {
 					report = reports.getItemAt(r) as Report;
-					sheet.setCell(i, 0, df.format(report.date));
+					sheet.setCell(i, 0, new Date(report.date.fullYear, report.date.month, report.date.date+1));//df.format(report.date));
 					for (var l:int = 0; l < report.lines.length; l++) {
 						var rl:Done = report.lines.getItemAt(l) as Done;
 						sheet.setCell(i, 1, rl.lineExt);
@@ -216,7 +218,7 @@
 			}
 			
 			private function convert():void {
-				col = read(input);
+				read(input);
 				if (col.length == 0)
 					Alert.show("Seems there's nothing to convert");
 			}
