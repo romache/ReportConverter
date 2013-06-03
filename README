@@ -1,4 +1,4 @@
-Convert separete (daily) time reports into one Excel spreadsheet (e.g., for monthly reports)
+Convert separate (daily) time reports into one Excel spreadsheet (e.g., for monthly reports)
 
 Usually I report on my daily activities to clients in a following form:
 
@@ -21,5 +21,5 @@ I store it for my own purposes in a separate files named something like "report 
 At the end/beginning of the month I send monthly report adn invoice based on that report.
 Report is an Excel spreadsheet with four columns and summary at the end. Columns are: Day, Task, Time, Notes.
 
-So to keep everything DRY, considering monthly report is only a summary of daily reports - this project has been spawned.
+Since monthly report is only a summary of daily reports, this project has been spawned - to keep everything DRY.
 
