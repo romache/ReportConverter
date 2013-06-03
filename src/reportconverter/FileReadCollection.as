@@ -12,8 +12,6 @@ package reportconverter
 	[Event(name="progress", type="flash.events.ProgressEvent")]
 	public class FileReadCollection extends ArrayCollection
 	{
-		public var loadedProp:String = "loaded";
-		
 		private var _toLoad:Number = 0;
 		
 		[Bindable("complete")]
@@ -35,35 +33,6 @@ package reportconverter
 			addEventListener(CollectionEvent.COLLECTION_CHANGE, onCollectionChange);
 		}
 		
-		override public function addItemAt(item:Object, index:int):void {
-			checkAdd(item);
-			super.addItemAt(item, index);
-		}
-		
-		override public function setItemAt(item:Object, index:int):Object {
-			checkAdd(item);
-			var result:Object = super.setItemAt(item, index);
-			if (result != null)
-				checkRemove(result);
-			return result;
-		}
-		
-		override public function removeItemAt(index:int):Object {
-			var result:Object = super.removeItemAt(index)
-			checkRemove(result);
-			return result;
-		}
-		
-		private function checkAdd(item:Object):void {
-			if (item.hasOwnProperty(loadedProp) && !item.loaded)
-				incUnloaded();
-		}
-		
-		private function checkRemove(item:Object):void {
-			if (item.hasOwnProperty(loadedProp) && !item.loaded)
-				decUnloaded();
-		}
-		
 		private function incUnloaded():void {
 			_toLoad++;
 			dispatchEvent(new ProgressEvent(ProgressEvent.PROGRESS));
@@ -76,16 +45,38 @@ package reportconverter
 				dispatchEvent(new Event(Event.COMPLETE));
 		}
 		
+		private function checkAdd(item:Object):void {
+			if (item.hasOwnProperty("loaded") && !item.loaded)
+				incUnloaded();
+		}
+		
+		private function checkRemove(item:Object):void {
+			if (item.hasOwnProperty("loaded") && !item.loaded)
+				decUnloaded();
+		}
+		
 		private function onCollectionChange(event:CollectionEvent):void {
 			if (event.kind == CollectionEventKind.UPDATE) {
-				for (var i:int = 0; i < event.items.length; i++) {
-					var pce:PropertyChangeEvent = event.items[i] as PropertyChangeEvent;
-					if (pce.property == loadedProp && pce.newValue != pce.oldValue) {
+				for each (var pce:PropertyChangeEvent in event.items) {
+					if (pce.property == "loaded" && pce.newValue != pce.oldValue) {
 						if (pce.newValue)
 							decUnloaded();
 						else
 							incUnloaded();
 					}
+				}
+			} else if (event.kind == CollectionEventKind.REPLACE) {
+				for each (pce in event.items) {
+					checkAdd(pce.newValue);
+					checkRemove(pce.oldValue);
+				}
+			} else if (event.kind == CollectionEventKind.ADD) {
+				for each (var o:Object in event.items) {
+					checkAdd(o);
+				}
+			} else if (event.kind == CollectionEventKind.REMOVE) {
+				for each (o in event.items) {
+					checkRemove(o);
 				}
 			}
 		}
