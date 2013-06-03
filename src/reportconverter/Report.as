@@ -1,10 +1,15 @@
 package reportconverter
 {
+	import flash.events.ErrorEvent;
 	import flash.events.Event;
 	import flash.events.EventDispatcher;
+	import flash.events.IOErrorEvent;
+	import flash.events.SecurityErrorEvent;
 	import flash.filesystem.File;
 	
 	import mx.collections.ArrayCollection;
+	import mx.controls.Alert;
+	import mx.core.EventPriority;
 	import mx.utils.StringUtil;
 	
 	import spark.collections.Sort;
@@ -16,8 +21,7 @@ package reportconverter
 			this.date = date;
 			_file = file;
 			if (_file != null) {
-				_file.addEventListener(Event.COMPLETE, onFileLoadComplete);
-				// TODO Error handling
+				addFileListeners(_file);
 				_file.load();
 			}
 		}
@@ -32,8 +36,21 @@ package reportconverter
 		[Bindable]
 		public var loaded:Boolean = false;
 		
+		private function addFileListeners(f:File):void {
+			f.addEventListener(Event.COMPLETE, onFileLoadComplete, false, EventPriority.DEFAULT, true);
+			f.addEventListener(IOErrorEvent.IO_ERROR, onFileLoadError, false, EventPriority.DEFAULT, true);
+			f.addEventListener(SecurityErrorEvent.SECURITY_ERROR, onFileLoadError, false, EventPriority.DEFAULT, true);
+		}
+		private function removeFileListeners(f:File):void {
+			f.removeEventListener(Event.COMPLETE, onFileLoadComplete);
+			f.removeEventListener(IOErrorEvent.IO_ERROR, onFileLoadError);
+			f.removeEventListener(SecurityErrorEvent.SECURITY_ERROR, onFileLoadError);
+		}
+		private function onFileLoadError(event:ErrorEvent):void {
+			Alert.show("Couldn't load file at " + _file.nativePath, "Error writing");
+		}
 		private function onFileLoadComplete(event:Event):void {
-			_file.removeEventListener(Event.COMPLETE, onFileLoadComplete);
+			removeFileListeners(_file);
 			build(_file.data.toString());
 			_file = null;
 		}
